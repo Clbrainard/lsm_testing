@@ -12,7 +12,7 @@ BATCHES IN RESULT FILE
 BATCH 1:
     deg_schedule = [2]
     basis_schedule = [0]
-    path_schedule = [10000, 100000, 1000000,1000000,10000000]
+    path_schedule = [10000, 100000,1000000,10000000]
     step_schedule = [365]
 
 
