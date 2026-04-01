@@ -160,7 +160,7 @@ def test1():
 
     deg_schedule = [2]
     basis_schedule = [0]
-    path_schedule = [10000000]
+    path_schedule = [100000000]
     step_schedule = [365]
 
     testSet = pd.read_csv("TestSet.csv")
