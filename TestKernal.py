@@ -160,10 +160,10 @@ def test1():
 
     deg_schedule = [2]
     basis_schedule = [0]
-    path_schedule = [100000000]
-    step_schedule = [365]
+    path_schedule = [100,1000,10000,100000]
+    step_schedule = [10,100,1000,10000,100000]
 
-    testSet = pd.read_csv("TestSet.csv")
+    testSet = pd.read_csv("TestSetNew.csv")
 
     for row in testSet.itertuples(index=False):
         RunTest(
@@ -183,5 +183,32 @@ def test1():
         )
 
 test1()
-    
+
+def test2():
+    vol = 0.2
+    r = 0.06
+    T = 1
+    K = So = 40
+    actual = 2.31948
+
+    inPaths = 5000
+    sched = [0.001,0.01,0.1,1,10,100,1000] # steps / path
+    for n in range(len(sched)):
+        RunTest(
+            So,
+            r,
+            K,
+            T,
+            K/So,
+            vol,
+            actual,
+            [2],
+            [0],
+            [inPaths],
+            [inPaths * sched[n]],
+            "funResults.csv",
+            42
+        )
+
+
     
