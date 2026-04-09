@@ -399,8 +399,8 @@ int main() {
     double actualPrice = 4.560364784109919;
     
     // HYPERPARAMS
-    std::vector<int> Nsched = {100,1000,10000,100000}; //steps per year
-    std::vector<int> Psched = {100};
+    std::vector<int> Nsched = {50,500,5000,50000}; //steps per year
+    std::vector<int> Psched = {50,500};
     int regType = 1;
     for (int p = 0; p<Psched.size(); p++) {
         std::cout << "TEST CASE GROUP: P=" << Psched[p] << "\n";
