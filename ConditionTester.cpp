@@ -43,6 +43,11 @@ int current_minute() {
         return local->tm_min;
 }
 
+void write_result(int steps, int paths, double absPercentError, double kappa, double runtime) {
+    std::ofstream file("results.csv", std::ios::app);
+    file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "\n";
+}
+
 //############################################
 //    REGRESSION STEP
 //############################################
@@ -146,20 +151,20 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
 
     auto basis = basisSet(regType);
 
-    long double B11 = 0.0L;
-    long double B12 = 0.0L;
-    long double B13 = 0.0L;
-    long double B14 = 0.0L;
-    long double B22 = 0.0L;
-    long double B23 = 0.0L;
-    long double B24 = 0.0L;
-    long double B33 = 0.0L;
-    long double B34 = 0.0L;
-    long double B44 = 0.0L;
-    long double S0 = 0.0L;
-    long double S1 = 0.0L;
-    long double S2 = 0.0L;
-    long double S3 = 0.0L;
+    double B11 = 0.0;
+    double B12 = 0.0;
+    double B13 = 0.0;
+    double B14 = 0.0;
+    double B22 = 0.0;
+    double B23 = 0.0;
+    double B24 = 0.0;
+    double B33 = 0.0;
+    double B34 = 0.0;
+    double B44 = 0.0;
+    double S0 = 0.0;
+    double S1 = 0.0;
+    double S2 = 0.0;
+    double S3 = 0.0;
 
     for (int i = 0; i < n; i++) {
         double x = X[i];
@@ -184,15 +189,15 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
         S3 += bas3 * y;
     }
 
-    Eigen::Matrix<long double, 4, 4> A;
+    Eigen::Matrix<double, 4, 4> A;
     A << B11,   B12,  B13,  B14,
          B12,   B22,  B23,  B24,
          B13,   B23,  B33,  B34,
          B14,   B24,  B34,  B44;
 
-    Eigen::Matrix<long double, 4, 1> b(S0, S1, S2, S3);
+    Eigen::Matrix<double, 4, 1> b(S0, S1, S2, S3);
 
-    Eigen::Matrix<long double, 4, 1> c = A.colPivHouseholderQr().solve(b);
+    Eigen::Matrix<double, 4, 1> c = A.colPivHouseholderQr().solve(b);
 
     auto svd = A.jacobiSvd();
     auto s = svd.singularValues();
@@ -204,12 +209,13 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
     // Effective rank is determined by the Eckart-Young threshold: a singular value
     // sigma_i is treated as zero if sigma_i <= 4*eps*sigma_1, which bounds the error
     // introduced by floating-point rounding in the formation of A to O(eps*||A||_2).
-    long double threshold = s(0) * 4.0L * std::numeric_limits<long double>::epsilon();
+    // Cast to long double only here so the ratio itself has full 80-bit precision.
+    long double threshold = (long double)s(0) * 4.0L * std::numeric_limits<long double>::epsilon();
     long double sMin = 0.0L;
     for (int i = s.size() - 1; i >= 0; i--) {
-        if (s(i) > threshold) { sMin = s(i); break; }
+        if ((long double)s(i) > threshold) { sMin = (long double)s(i); break; }
     }
-    long double kappa = (sMin > 0.0L) ? s(0) / sMin : std::numeric_limits<long double>::infinity();
+    long double kappa = (sMin > 0.0L) ? (long double)s(0) / sMin : std::numeric_limits<long double>::infinity();
 
     return {c(0), c(1), c(2), c(3), kappa};
 }
@@ -217,7 +223,6 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
 //################################################
 //   GEOMETRIC BROWNIAN MOTION PATH SIMULATION
 //################################################
-
 //returns a matrix with N steps and 2*P paths (includes P antithetic)
 std::vector<double> generatePricePathMatrix(
     int P, double So, double dt, int N, double r, double v
@@ -245,17 +250,20 @@ std::vector<double> generatePricePathMatrix(
     return paths;
 }
 
-//returns 2*P paths (includes P antithetic)
+//P must be even
+//returns P paths (includes P/2 antithetic)
 std::vector<double> generatePricePathStep(
     int P, double So, double dt, double r, double v
 ) {
-    std::vector<double> paths(2*P);
+    std::vector<double> paths(P);
 
     double drift = (r - 0.5 * v * v) * dt;
     double vol = v * std::sqrt(dt);
 
     std::mt19937 gen(std::random_device{}());
     std::normal_distribution<double> d(0.0, 1.0);
+
+    P = P/2;
 
     for (int p = 0; p < P; ++p) {
         double z = d(gen);
@@ -276,7 +284,6 @@ std::vector<long double> priceAmericanPut(
     N = (int)(T * N);
     double dt = T / N;
     std::vector<double> S = generatePricePathMatrix(P, So, dt, N, r, v);
-    P = P * 2;
     std::vector<std::vector<double>> C(P, std::vector<double>(N, 0.0));
     std::vector<int> itm_indices;
     std::vector<double> X;
@@ -285,10 +292,12 @@ std::vector<long double> priceAmericanPut(
     long double sumKappa = 0.0L;
     long double numKappa = 0.0L;
 
-    long double c_coeff;
-    long double b_coeff;
-    long double a_coeff;
+    double c_coeff;
+    double b_coeff;
+    double a_coeff;
 
+    std::vector<int> itm_mask(P);
+    std::vector<double> pv_arr(P);
 
     for (int p = 0; p<P; p++) {
         C[p][N-1] = fmax(K-S[(p*N)+N-1],0);
@@ -300,8 +309,11 @@ std::vector<long double> priceAmericanPut(
         Y.clear();
         itm_indices.clear();
 
-        for (int p = 0; p<P; p++) {
-            if (K-S[(p*N)+n] > 0) {
+        // Parallel scan: each path's pv lookup is independent
+        #pragma omp parallel for schedule(static)
+        for (int p = 0; p < P; p++) {
+            itm_mask[p] = 0;
+            if (K - S[(p*N)+n] > 0) {
                 double pv = 0.0;
                 for (int future = n+1; future < N; future++) {
                     if (C[p][future] > 0) {
@@ -309,12 +321,18 @@ std::vector<long double> priceAmericanPut(
                         break;
                     }
                 }
+                itm_mask[p] = 1;
+                pv_arr[p]   = pv;
+            }
+        }
+        // Serial compact — no race conditions, cache-friendly
+        for (int p = 0; p < P; p++) {
+            if (itm_mask[p]) {
                 X.push_back(S[(p*N)+n]);
-                Y.push_back(pv);
+                Y.push_back(pv_arr[p]);
                 itm_indices.push_back(p);
             }
         }
-        //std::cout << X_filtered.size();
 
         // if it is optimal to exercise nowhere in this step, skip to next step
         if (X.size() == 0) {
@@ -342,10 +360,12 @@ std::vector<long double> priceAmericanPut(
             }
         }
         
-        for (int i = 0; i < itm_indices.size(); i++ ){
+        // Each path is independent — no write conflicts on C[p][n]
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < (int)itm_indices.size(); i++) {
             int p = itm_indices[i];
             double intrinsic = fmax(K-S[(p*N)+n],0);
-            long double expectedContinuance;
+            double expectedContinuance;
 
             if (useReg) {
                 expectedContinuance = c_coeff + (b_coeff * S[(p*N)+n]) + (a_coeff * S[(p*N)+n] * S[(p*N)+n]);
@@ -356,10 +376,10 @@ std::vector<long double> priceAmericanPut(
             if (intrinsic > expectedContinuance) {
                 C[p][n] = intrinsic;
             }
-            
         }
     }
-    long double price = 0.0L;
+    double price = 0.0;
+    #pragma omp parallel for reduction(+:price) schedule(static)
     for (int p=0; p<P; p++) {
         for (int n=0; n<N; n++) {
             if (C[p][n] > 0) {
@@ -399,28 +419,36 @@ int main() {
     double actualPrice = 4.560364784109919;
     
     // HYPERPARAMS
-    std::vector<int> Nsched = {50,500,5000,50000}; //steps per year
-    std::vector<int> Psched = {50,500};
+    std::vector<int> Nsched = {100,1000,10000,100000};
+    std::vector<int> Psched = {100,1000,10000,100000};
     int regType = 1;
-    for (int p = 0; p<Psched.size(); p++) {
-        std::cout << "TEST CASE GROUP: P=" << Psched[p] << "\n";
-        for (int n = 0; n<Nsched.size(); n++) {
-            // ALGORITHM
-            auto t0 = std::chrono::high_resolution_clock::now();
-            std::vector<long double> output = priceAmericanPut(So, T, Nsched[n], Psched[p], r, v, K, regType);
-            auto t1 = std::chrono::high_resolution_clock::now();
-            double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    const size_t maxBytes = (size_t)4 * 1024 * 1024 * 1024; // 4 GB limit
+    #pragma omp parallel for collapse(3) schedule(dynamic)
+    for (int i = 0; i < 10; i++) {
+        for (int p = 0; p < (int)Psched.size(); p++) {
+            for (int n = 0; n < (int)Nsched.size(); n++) {
+                size_t N_actual = (size_t)(T * Nsched[n]);
+                if (N_actual == 0 || (size_t)Psched[p] * N_actual * sizeof(double) > maxBytes) {
+                    continue;
+                }
 
-            // RESULTS
-            double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
-    
-            std::cout << "TEST CASE: N=" << Nsched[n] << " P=" << Psched[p] << "\n";
-            std::cout << " - The absolute percent error is: " << APE << "\n";
-            std::cout << " - The avg kappa is: " << output[1] << "\n";
-            std::cout << " - Time: " << ms << " ms\n\n";
+                // ALGORITHM
+                auto t0 = std::chrono::high_resolution_clock::now();
+                std::vector<long double> output = priceAmericanPut(So, T, Nsched[n], Psched[p], r, v, K, regType);
+                auto t1 = std::chrono::high_resolution_clock::now();
+                double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
+
+                // RESULTS
+                double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
+
+                #pragma omp critical
+                write_result(Nsched[n], Psched[p], APE, output[1], seconds);
+        
+
+
+            }
+
         }
-
+    
     }
-
-
 }
