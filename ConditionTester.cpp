@@ -44,7 +44,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime) {
-    std::ofstream file("results.csv", std::ios::app);
+    std::ofstream file("results_1.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "\n";
 }
 
@@ -412,15 +412,15 @@ int main() {
 
     // OPTION PROPERTIES
     double So = 100;
-    double T = 0.1643835616438356;  //60 days
+    double T = 1;  
     double r = 0.04;
     double v = 0.3;
     double K = 100;
-    double actualPrice = 4.560364784109919;
+    double actualPrice =  10.2284;
     
     // HYPERPARAMS
-    std::vector<int> Nsched = {100,1000,10000,100000};
-    std::vector<int> Psched = {100,1000,10000,100000};
+    std::vector<int> Nsched = {1,5,25,50,100,150,250,500,750,1000};
+    std::vector<int> Psched = {1000};
     int regType = 1;
     const size_t maxBytes = (size_t)4 * 1024 * 1024 * 1024; // 4 GB limit
     #pragma omp parallel for collapse(3) schedule(dynamic)
