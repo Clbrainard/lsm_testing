@@ -44,7 +44,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime) {
-    std::ofstream file("results_1.csv", std::ios::app);
+    std::ofstream file("results_2.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "\n";
 }
 
@@ -415,8 +415,8 @@ int main() {
     double T = 1;  
     double r = 0.04;
     double v = 0.3;
-    double K = 100;
-    double actualPrice =  10.2284;
+    double K = 90;
+    double actualPrice =  5.8091;
     
     // HYPERPARAMS
     std::vector<int> Nsched = {1,5,25,50,100,150,250,500,750,1000};
