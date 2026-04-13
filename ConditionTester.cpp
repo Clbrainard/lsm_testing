@@ -11,7 +11,10 @@
 #include <iterator>
 #include "Eigen/Dense"
 #include "Eigen/SVD"
-#include <omp.h>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -250,29 +253,6 @@ std::vector<double> generatePricePathMatrix(
     return paths;
 }
 
-//P must be even
-//returns P paths (includes P/2 antithetic)
-std::vector<double> generatePricePathStep(
-    int P, double So, double dt, double r, double v
-) {
-    std::vector<double> paths(P);
-
-    double drift = (r - 0.5 * v * v) * dt;
-    double vol = v * std::sqrt(dt);
-
-    std::mt19937 gen(std::random_device{}());
-    std::normal_distribution<double> d(0.0, 1.0);
-
-    P = P/2;
-
-    for (int p = 0; p < P; ++p) {
-        double z = d(gen);
-        paths[p] = So * std::exp(drift + vol *  z);
-        paths[P+p] = So * std::exp(drift + vol * -z);
-    }
-
-    return paths;
-}
 
 //################################################
 //       PRICER
@@ -310,7 +290,6 @@ std::vector<long double> priceAmericanPut(
         itm_indices.clear();
 
         // Parallel scan: each path's pv lookup is independent
-        #pragma omp parallel for schedule(static)
         for (int p = 0; p < P; p++) {
             itm_mask[p] = 0;
             if (K - S[(p*N)+n] > 0) {
@@ -361,7 +340,6 @@ std::vector<long double> priceAmericanPut(
         }
         
         // Each path is independent — no write conflicts on C[p][n]
-        #pragma omp parallel for schedule(static)
         for (int i = 0; i < (int)itm_indices.size(); i++) {
             int p = itm_indices[i];
             double intrinsic = fmax(K-S[(p*N)+n],0);
@@ -379,7 +357,6 @@ std::vector<long double> priceAmericanPut(
         }
     }
     double price = 0.0;
-    #pragma omp parallel for reduction(+:price) schedule(static)
     for (int p=0; p<P; p++) {
         for (int n=0; n<N; n++) {
             if (C[p][n] > 0) {
@@ -395,6 +372,68 @@ std::vector<long double> priceAmericanPut(
     long double avgKappa = (numKappa > 0.0L) ? sumKappa / numKappa : 0.0L;
     return {price/P, avgKappa};
 }
+
+//############################################
+//    THREAD POOL
+//############################################
+
+class ThreadPool {
+public:
+    explicit ThreadPool(unsigned int n) : stop_(false), pending_(0) {
+        if (n == 0) n = 1;
+        for (unsigned int i = 0; i < n; ++i)
+            workers_.emplace_back([this]{ worker(); });
+    }
+
+    void enqueue(std::function<void()> task) {
+        {
+            std::unique_lock<std::mutex> lk(mu_);
+            tasks_.push(std::move(task));
+            ++pending_;
+        }
+        cv_.notify_one();
+    }
+
+    void wait_all() {
+        std::unique_lock<std::mutex> lk(mu_);
+        done_cv_.wait(lk, [this]{ return pending_ == 0; });
+    }
+
+    ~ThreadPool() {
+        {
+            std::unique_lock<std::mutex> lk(mu_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        for (auto& t : workers_) t.join();
+    }
+
+private:
+    void worker() {
+        for (;;) {
+            std::function<void()> task;
+            {
+                std::unique_lock<std::mutex> lk(mu_);
+                cv_.wait(lk, [this]{ return stop_ || !tasks_.empty(); });
+                if (stop_ && tasks_.empty()) return;
+                task = std::move(tasks_.front());
+                tasks_.pop();
+            }
+            task();
+            {
+                std::unique_lock<std::mutex> lk(mu_);
+                if (--pending_ == 0) done_cv_.notify_all();
+            }
+        }
+    }
+
+    std::vector<std::thread> workers_;
+    std::queue<std::function<void()>> tasks_;
+    std::mutex mu_;
+    std::condition_variable cv_, done_cv_;
+    bool stop_;
+    int pending_;
+};
 
 int main() {
     /*
@@ -414,12 +453,15 @@ int main() {
 
     // OPTION PROPERTIES
     std::vector<std::vector<double>> cases = {
-        {100.0, 100.0, 1.0, 0.05, 0.2, 6.943348},  // ATM
-        {100.0, 105.0, 1.0, 0.05, 0.2, 9.531510},  // ITM mild  (K > So for put)
-        {100.0, 110.0, 1.0, 0.05, 0.2, 12.630536},  // ITM deep  (K > So for put)
-        {100.0,  95.0, 1.0, 0.05, 0.2, 4.850718}   // OTM       (K < So for put)
+        {100.0, 100.0, 1.0, 0.05, 0.2, 6.089770},  // ATM
+        {100.0, 105.0, 1.0, 0.05, 0.2, 8.739389},  // ITM mild  (K > So for put)
+        {100.0, 110.0, 1.0, 0.05, 0.2, 11.971846},  // ITM deep  (K > So for put)
+        {100.0,  95.0, 1.0, 0.05, 0.2, 4.012655}   // OTM       (K < So for put)
+
+
     };
-    
+
+
     // HYPERPARAMS
     std::vector<int> Nsched = {
         10, 20, 35, 50, 75, 100, 
@@ -430,40 +472,39 @@ int main() {
     };
     std::vector<int> Psched = {30000};
     int regType = 1;
-
-
-    double So = cases[0][0];
-    double T = cases[0][2];  
-    double r = cases[0][3];
-    double v = cases[0][4];
-    double K = cases[0][1];
-    double actualPrice = cases[0][5];
     
     
     //Test cases
-    for (int z = 0; z<cases.size(); z++) {
+    std::mutex write_mutex;
+    ThreadPool pool(std::thread::hardware_concurrency());
+
+    for (int z = 0; z < (int)cases.size(); z++) {
+        double So = cases[z][0];
+        double T  = cases[z][2];
+        double r  = cases[z][3];
+        double v  = cases[z][4];
+        double K  = cases[z][1];
+        double actualPrice = cases[z][5];
         for (int i = 0; i < 50; i++) {
             for (int p = 0; p < (int)Psched.size(); p++) {
                 for (int n = 0; n < (int)Nsched.size(); n++) {
-                    size_t N_actual = (size_t)(T * Nsched[n]);
+                    int Nval = Nsched[n];
+                    int Pval = Psched[p];
+                    pool.enqueue([=, &write_mutex]() {
+                        auto t0 = std::chrono::high_resolution_clock::now();
+                        std::vector<long double> output = priceAmericanPut(So, T, Nval, Pval, r, v, K, regType);
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
 
-                    // ALGORITHM
-                    auto t0 = std::chrono::high_resolution_clock::now();
-                    std::vector<long double> output = priceAmericanPut(So, T, Nsched[n], Psched[p], r, v, K, regType);
-                    auto t1 = std::chrono::high_resolution_clock::now();
-                    double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
+                        double APE = (std::abs(output[0] - actualPrice) / actualPrice) * 100;
 
-                    // RESULTS
-                    double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
-
-                    write_result(Nsched[n], Psched[p], APE, output[1], seconds, K);
-            
-
-
+                        std::lock_guard<std::mutex> lk(write_mutex);
+                        write_result(Nval, Pval, APE, output[1], seconds, K);
+                    });
                 }
-
             }
-        
         }
     }
+
+    pool.wait_all();
 }
