@@ -43,9 +43,9 @@ int current_minute() {
         return local->tm_min;
 }
 
-void write_result(int steps, int paths, double absPercentError, double kappa, double runtime) {
-    std::ofstream file("results_1.csv", std::ios::app);
-    file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "\n";
+void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K) {
+    std::ofstream file("Nanalysis.csv", std::ios::app);
+    file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K << "\n";
 }
 
 //############################################
@@ -281,7 +281,7 @@ std::vector<double> generatePricePathStep(
 std::vector<long double> priceAmericanPut(
     double So, double T, int N, int P, double r, double v, double K, int regType
 ) {
-    N = (int)(T * N);
+
     double dt = T / N;
     std::vector<double> S = generatePricePathMatrix(P, So, dt, N, r, v);
     std::vector<std::vector<double>> C(P, std::vector<double>(N, 0.0));
@@ -401,54 +401,69 @@ int main() {
     TYPES
     1 = Polynomial Deg 2
     2 = Polynomial Deg 3
-    3 = Leandre Deg 2
-    4 = Leandre Deg 3
+    3 = Legendre Deg 2
+    4 = Legendre Deg 3
     5 = Hermite Deg 2
-    5 = Hermite Deg 3
-    6 = Laguerre Deg 2
-    7 = Laguerre Deg 3
+    6 = Hermite Deg 3
+    7 = Laguerre Deg 2
+    8 = Laguerre Deg 3
     */
+
+    // current test is for 4 options, tested 50 times each over Nsched and P=30,000
 
 
     // OPTION PROPERTIES
-    double So = 100;
-    double T = 1;  
-    double r = 0.04;
-    double v = 0.3;
-    double K = 100;
-    double actualPrice =  5.8091;
+    std::vector<std::vector<double>> cases = {
+        {100.0, 100.0, 1.0, 0.05, 0.2, 6.943348},  // ATM
+        {100.0, 105.0, 1.0, 0.05, 0.2, 9.531510},  // ITM mild  (K > So for put)
+        {100.0, 110.0, 1.0, 0.05, 0.2, 12.630536},  // ITM deep  (K > So for put)
+        {100.0,  95.0, 1.0, 0.05, 0.2, 4.850718}   // OTM       (K < So for put)
+    };
     
     // HYPERPARAMS
-    std::vector<int> Nsched = {1,5,25,50,100,150,250,500,750,1000};
-    std::vector<int> Psched = {1000};
+    std::vector<int> Nsched = {
+        10, 20, 35, 50, 75, 100, 
+        150, 200, 300, 400, 500, 
+        750, 1000, 1500, 2000, 3000, 
+        5000, 7500, 10000,
+        20000, 30000, 40000
+    };
+    std::vector<int> Psched = {30000};
     int regType = 1;
-    const size_t maxBytes = (size_t)4 * 1024 * 1024 * 1024; // 4 GB limit
-    #pragma omp parallel for collapse(3) schedule(dynamic)
-    for (int i = 0; i < 40; i++) {
-        for (int p = 0; p < (int)Psched.size(); p++) {
-            for (int n = 0; n < (int)Nsched.size(); n++) {
-                size_t N_actual = (size_t)(T * Nsched[n]);
-                if (N_actual == 0 || (size_t)Psched[p] * N_actual * sizeof(double) > maxBytes) {
-                    continue;
+
+
+    double So = cases[0][0];
+    double T = cases[0][2];  
+    double r = cases[0][3];
+    double v = cases[0][4];
+    double K = cases[0][1];
+    double actualPrice = cases[0][5];
+    
+    
+    //Test cases
+    for (int z = 0; z<cases.size(); z++) {
+        for (int i = 0; i < 50; i++) {
+            for (int p = 0; p < (int)Psched.size(); p++) {
+                for (int n = 0; n < (int)Nsched.size(); n++) {
+                    size_t N_actual = (size_t)(T * Nsched[n]);
+
+                    // ALGORITHM
+                    auto t0 = std::chrono::high_resolution_clock::now();
+                    std::vector<long double> output = priceAmericanPut(So, T, Nsched[n], Psched[p], r, v, K, regType);
+                    auto t1 = std::chrono::high_resolution_clock::now();
+                    double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
+
+                    // RESULTS
+                    double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
+
+                    write_result(Nsched[n], Psched[p], APE, output[1], seconds, K);
+            
+
+
                 }
 
-                // ALGORITHM
-                auto t0 = std::chrono::high_resolution_clock::now();
-                std::vector<long double> output = priceAmericanPut(So, T, Nsched[n], Psched[p], r, v, K, regType);
-                auto t1 = std::chrono::high_resolution_clock::now();
-                double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
-
-                // RESULTS
-                double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
-
-                #pragma omp critical
-                write_result(Nsched[n], Psched[p], APE, output[1], seconds);
-        
-
-
             }
-
+        
         }
-    
     }
 }
