@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("DTanalysis.csv", std::ios::app);
+    std::ofstream file("DTanalysis2.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -432,7 +432,7 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("DiscretizationTestSet.csv");
+    std::vector<std::vector<double>> cases = load_csv("DiscretizationTestSet2.csv");
 
     int P = 10000;
     int N = 100;
