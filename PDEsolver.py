@@ -86,7 +86,7 @@ def price_grid(S0, r, v, T_list, K_list):
 if __name__ == "__main__":
 
     T_sched = [
-        40,50,70,90,100
+        0.015,0.02
     ]
     K_sched = [110,105,100,95]
 
