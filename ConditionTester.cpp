@@ -11,13 +11,11 @@
 #include <iterator>
 #include "Eigen/Dense"
 #include "Eigen/SVD"
-#include <mutex>
-#include <condition_variable>
-#include <queue>
-#include <atomic>
+#include <omp.h>
 #include <ctime>
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <stdexcept>
 #include <functional>
 
@@ -46,9 +44,33 @@ int current_minute() {
         return local->tm_min;
 }
 
-void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K) {
-    std::ofstream file("Nanalysis.csv", std::ios::app);
-    file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K << "\n";
+void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
+    std::ofstream file("DTanalysis.csv", std::ios::app);
+    file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
+}
+
+// Reads a CSV file (with header) and returns each data row as a vector of doubles.
+// Returns a vector of rows; each row is a vector<double> of parsed values.
+std::vector<std::vector<double>> load_csv(const std::string& filepath) {
+    std::vector<std::vector<double>> result;
+    std::ifstream file(filepath);
+    if (!file.is_open())
+        throw std::runtime_error("Could not open file: " + filepath);
+
+    std::string line;
+    std::getline(file, line); // skip header
+
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        std::vector<double> row;
+        std::istringstream ss(line);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            row.push_back(std::stod(token));
+        }
+        result.push_back(row);
+    }
+    return result;
 }
 
 //############################################
@@ -230,23 +252,37 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
 std::vector<double> generatePricePathMatrix(
     int P, double So, double dt, int N, double r, double v
 ) {
-    std::vector<double> paths(P * 2 * N);;
+    std::vector<double> paths((size_t)P * 2 * N);
 
     double drift = (r - 0.5 * v * v) * dt;
     double vol = v * std::sqrt(dt);
 
-    std::mt19937 gen(std::random_device{}());
-    std::normal_distribution<double> d(0.0, 1.0);
+    // Seed one independent mt19937 per OpenMP thread from a master generator.
+    // Each thread exclusively uses gens[tid] and a private normal_distribution,
+    // so there is zero shared mutable RNG state and Gaussian draws remain
+    // statistically independent across paths.
+    std::mt19937 master(std::random_device{}());
+    int nThreads = omp_get_max_threads();
+    std::vector<std::mt19937> gens(nThreads);
+    for (int t = 0; t < nThreads; ++t)
+        gens[t] = std::mt19937(master());
 
-    for (int p = 0; p < P; ++p) {
-        double last  = So;
-        double lastA = So;
-        for (int n = 0; n < N; ++n) {
-            double z = d(gen);
-            last  *= std::exp(drift + vol *  z);
-            lastA *= std::exp(drift + vol * -z);
-            paths[p * N + n] = last;
-            paths[(P+p) * N + n] = lastA;
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        std::normal_distribution<double> d(0.0, 1.0);
+
+        #pragma omp for schedule(static)
+        for (int p = 0; p < P; ++p) {
+            double last  = So;
+            double lastA = So;
+            for (int n = 0; n < N; ++n) {
+                double z = d(gens[tid]);
+                last  *= std::exp(drift + vol *  z);
+                lastA *= std::exp(drift + vol * -z);
+                paths[p * N + n] = last;
+                paths[(P+p) * N + n] = lastA;
+            }
         }
     }
 
@@ -263,177 +299,121 @@ std::vector<long double> priceAmericanPut(
 ) {
 
     double dt = T / N;
-    std::vector<double> S = generatePricePathMatrix(P, So, dt, N, r, v);
-    std::vector<std::vector<double>> C(P, std::vector<double>(N, 0.0));
-    std::vector<int> itm_indices;
-    std::vector<double> X;
-    std::vector<double> Y;
 
+    // Limit each paths matrix allocation to ~4 GB to handle large N×P combinations.
+    // LSM is run independently on each batch; because each batch is an independent
+    // Monte Carlo estimator the grand average over all batches is unbiased.
+    const size_t MAX_PATHS_BYTES = (size_t)4 * 1024 * 1024 * 1024;
+    size_t bytes_per_path_pair = (size_t)2 * N * sizeof(double);
+    int batch_size = (bytes_per_path_pair > 0 &&
+                      (size_t)P * bytes_per_path_pair > MAX_PATHS_BYTES)
+                     ? (int)(MAX_PATHS_BYTES / bytes_per_path_pair)
+                     : P;
+    if (batch_size < 1) batch_size = 1;
+
+    long double sumPrice = 0.0L;
     long double sumKappa = 0.0L;
     long double numKappa = 0.0L;
+    int totalPaths = 0;
 
-    double c_coeff;
-    double b_coeff;
-    double a_coeff;
+    for (int batchStart = 0; batchStart < P; batchStart += batch_size) {
+        int bP = std::min(batch_size, P - batchStart);
 
-    std::vector<int> itm_mask(P);
-    std::vector<double> pv_arr(P);
+        std::vector<double> S = generatePricePathMatrix(bP, So, dt, N, r, v);
 
-    for (int p = 0; p<P; p++) {
-        C[p][N-1] = fmax(K-S[(p*N)+N-1],0);
-    }
-    
-    for (int n= N-2; n>=0; n--) {
-        //get X and Y
-        X.clear();
-        Y.clear();
-        itm_indices.clear();
+        std::vector<int>    ex_step(bP, -1);
+        std::vector<double> ex_val (bP, 0.0);
+        std::vector<int>    itm_mask(bP);
+        std::vector<double> pv_arr(bP);
+        std::vector<int>    itm_indices;
+        std::vector<double> X, Y;
 
-        // Parallel scan: each path's pv lookup is independent
-        for (int p = 0; p < P; p++) {
-            itm_mask[p] = 0;
-            if (K - S[(p*N)+n] > 0) {
-                double pv = 0.0;
-                for (int future = n+1; future < N; future++) {
-                    if (C[p][future] > 0) {
-                        pv = C[p][future] * exp(-r * dt * (future - n));
-                        break;
-                    }
+        double c_coeff = 0.0, b_coeff = 0.0, a_coeff = 0.0;
+
+        // Terminal payoff
+        for (int p = 0; p < bP; p++) {
+            double payoff = fmax(K - S[(p*N)+N-1], 0.0);
+            if (payoff > 0.0) {
+                ex_step[p] = N - 1;
+                ex_val[p]  = payoff;
+            }
+        }
+
+        for (int n = N-2; n >= 0; n--) {
+            X.clear();
+            Y.clear();
+            itm_indices.clear();
+
+            for (int p = 0; p < bP; p++) {
+                itm_mask[p] = 0;
+                if (K - S[(p*N)+n] > 0) {
+                    double pv = 0.0;
+                    if (ex_step[p] > n)
+                        pv = ex_val[p] * exp(-r * dt * (ex_step[p] - n));
+                    itm_mask[p] = 1;
+                    pv_arr[p]   = pv;
                 }
-                itm_mask[p] = 1;
-                pv_arr[p]   = pv;
             }
-        }
-        // Serial compact — no race conditions, cache-friendly
-        for (int p = 0; p < P; p++) {
-            if (itm_mask[p]) {
-                X.push_back(S[(p*N)+n]);
-                Y.push_back(pv_arr[p]);
-                itm_indices.push_back(p);
+            for (int p = 0; p < bP; p++) {
+                if (itm_mask[p]) {
+                    X.push_back(S[(p*N)+n]);
+                    Y.push_back(pv_arr[p]);
+                    itm_indices.push_back(p);
+                }
             }
-        }
 
-        // if it is optimal to exercise nowhere in this step, skip to next step
-        if (X.size() == 0) {
-            continue;
-        }
+            if (X.empty()) continue;
 
-        
-        //here is the part where we determine E() function
+            //here is the part where we determine E() function
 
-        //if there are less that 3 datapoints, assume E() is mean of Y_filtered
-        bool useReg = X.size() >2;
-        if (useReg) {
-            try {
-                std::vector<long double> solution = regress(X,Y,regType);
-                c_coeff = solution[0];
-                b_coeff = solution[1];
-                a_coeff = solution[2];
-                sumKappa += solution[4];
-                numKappa += 1;
-            // ##################################################################################
-            // NOTE THIS PART: THIS CAUSES INNACURACY IN THE DESIGN:
-            // ##################################################################################
-            } catch (const std::runtime_error&) {
-                useReg = false;
-            }
-        }
-        
-        // Each path is independent — no write conflicts on C[p][n]
-        for (int i = 0; i < (int)itm_indices.size(); i++) {
-            int p = itm_indices[i];
-            double intrinsic = fmax(K-S[(p*N)+n],0);
-            double expectedContinuance;
-
+            //if there are less that 3 datapoints, assume E() is mean of Y_filtered
+            bool useReg = X.size() > 2;
             if (useReg) {
-                expectedContinuance = c_coeff + (b_coeff * S[(p*N)+n]) + (a_coeff * S[(p*N)+n] * S[(p*N)+n]);
-            } else {
-                expectedContinuance = 0;
+                try {
+                    std::vector<long double> solution = regress(X, Y, regType);
+                    c_coeff = solution[0];
+                    b_coeff = solution[1];
+                    a_coeff = solution[2];
+                    sumKappa += solution[4];
+                    numKappa += 1;
+                // ##################################################################################
+                // NOTE THIS PART: THIS CAUSES INNACURACY IN THE DESIGN:
+                // ##################################################################################
+                } catch (const std::runtime_error&) {
+                    useReg = false;
+                }
             }
 
-            if (intrinsic > expectedContinuance) {
-                C[p][n] = intrinsic;
+            for (int i = 0; i < (int)itm_indices.size(); i++) {
+                int p = itm_indices[i];
+                double intrinsic = fmax(K - S[(p*N)+n], 0.0);
+                double expectedContinuance = useReg
+                    ? c_coeff + (b_coeff * S[(p*N)+n]) + (a_coeff * S[(p*N)+n] * S[(p*N)+n])
+                    : 0.0;
+                if (intrinsic > expectedContinuance) {
+                    ex_step[p] = n;
+                    ex_val[p]  = intrinsic;
+                }
             }
         }
-    }
-    double price = 0.0;
-    for (int p=0; p<P; p++) {
-        for (int n=0; n<N; n++) {
-            if (C[p][n] > 0) {
-                price += C[p][n] * exp(-r * dt * (n+1));
-                break;
-            }
+
+        for (int p = 0; p < bP; p++) {
+            if (ex_step[p] >= 0)
+                sumPrice += ex_val[p] * exp(-r * dt * (ex_step[p] + 1));
         }
-    }
+        totalPaths += bP;
+
+    } // end batch loop
+    double price = (double)(sumPrice / totalPaths);
 
     // Guard against numKappa == 0, which occurs when N = (int)(T * stepsPerYear) <= 1
     // (e.g. T=0.164, stepsPerYear=10 -> N=1), leaving the backward loop body unreachable.
     // In that case no regression was performed, so kappa is undefined; return 0 instead of NaN.
     long double avgKappa = (numKappa > 0.0L) ? sumKappa / numKappa : 0.0L;
-    return {price/P, avgKappa};
+    return {price, avgKappa};
 }
 
-//############################################
-//    THREAD POOL
-//############################################
 
-class ThreadPool {
-public:
-    explicit ThreadPool(unsigned int n) : stop_(false), pending_(0) {
-        if (n == 0) n = 1;
-        for (unsigned int i = 0; i < n; ++i)
-            workers_.emplace_back([this]{ worker(); });
-    }
-
-    void enqueue(std::function<void()> task) {
-        {
-            std::unique_lock<std::mutex> lk(mu_);
-            tasks_.push(std::move(task));
-            ++pending_;
-        }
-        cv_.notify_one();
-    }
-
-    void wait_all() {
-        std::unique_lock<std::mutex> lk(mu_);
-        done_cv_.wait(lk, [this]{ return pending_ == 0; });
-    }
-
-    ~ThreadPool() {
-        {
-            std::unique_lock<std::mutex> lk(mu_);
-            stop_ = true;
-        }
-        cv_.notify_all();
-        for (auto& t : workers_) t.join();
-    }
-
-private:
-    void worker() {
-        for (;;) {
-            std::function<void()> task;
-            {
-                std::unique_lock<std::mutex> lk(mu_);
-                cv_.wait(lk, [this]{ return stop_ || !tasks_.empty(); });
-                if (stop_ && tasks_.empty()) return;
-                task = std::move(tasks_.front());
-                tasks_.pop();
-            }
-            task();
-            {
-                std::unique_lock<std::mutex> lk(mu_);
-                if (--pending_ == 0) done_cv_.notify_all();
-            }
-        }
-    }
-
-    std::vector<std::thread> workers_;
-    std::queue<std::function<void()>> tasks_;
-    std::mutex mu_;
-    std::condition_variable cv_, done_cv_;
-    bool stop_;
-    int pending_;
-};
 
 int main() {
     /*
@@ -448,63 +428,38 @@ int main() {
     8 = Laguerre Deg 3
     */
 
-    // current test is for 4 options, tested 50 times each over Nsched and P=30,000
+    // current test is for 4 options, tested 50 times each with P=10,000, and T being decreased
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = {
-        {100.0, 100.0, 1.0, 0.05, 0.2, 6.089770},  // ATM
-        {100.0, 105.0, 1.0, 0.05, 0.2, 8.739389},  // ITM mild  (K > So for put)
-        {100.0, 110.0, 1.0, 0.05, 0.2, 11.971846},  // ITM deep  (K > So for put)
-        {100.0,  95.0, 1.0, 0.05, 0.2, 4.012655}   // OTM       (K < So for put)
+    std::vector<std::vector<double>> cases = load_csv("DiscretizationTestSet.csv");
 
-
-    };
-
-
-    // HYPERPARAMS
-    std::vector<int> Nsched = {
-        10, 20, 35, 50, 75, 100, 
-        150, 200, 300, 400, 500, 
-        750, 1000, 1500, 2000, 3000, 
-        5000, 7500, 10000,
-        20000, 30000, 40000
-    };
-    std::vector<int> Psched = {30000};
+    int P = 10000;
+    int N = 100;
     int regType = 1;
-    
-    
-    //Test cases
-    std::mutex write_mutex;
-    ThreadPool pool(std::thread::hardware_concurrency());
 
-    for (int z = 0; z < (int)cases.size(); z++) {
+
+    //Test cases
+    for (int z = 0; z<cases.size(); z++) {
         double So = cases[z][0];
-        double T  = cases[z][2];
-        double r  = cases[z][3];
-        double v  = cases[z][4];
-        double K  = cases[z][1];
+        double T = cases[z][2];  
+        double r = cases[z][3];
+        double v = cases[z][4];
+        double K = cases[z][1];
         double actualPrice = cases[z][5];
         for (int i = 0; i < 50; i++) {
-            for (int p = 0; p < (int)Psched.size(); p++) {
-                for (int n = 0; n < (int)Nsched.size(); n++) {
-                    int Nval = Nsched[n];
-                    int Pval = Psched[p];
-                    pool.enqueue([=, &write_mutex]() {
-                        auto t0 = std::chrono::high_resolution_clock::now();
-                        std::vector<long double> output = priceAmericanPut(So, T, Nval, Pval, r, v, K, regType);
-                        auto t1 = std::chrono::high_resolution_clock::now();
-                        double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
 
-                        double APE = (std::abs(output[0] - actualPrice) / actualPrice) * 100;
+                    // ALGORITHM
+                    auto t0 = std::chrono::high_resolution_clock::now();
+                    std::vector<long double> output = priceAmericanPut(So, T, N, P, r, v, K, regType);
+                    auto t1 = std::chrono::high_resolution_clock::now();
+                    double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
 
-                        std::lock_guard<std::mutex> lk(write_mutex);
-                        write_result(Nval, Pval, APE, output[1], seconds, K);
-                    });
-                }
-            }
+                    // RESULTS
+                    double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
+
+                    write_result(N, P, APE, output[1], seconds, K, T/N);
+        
         }
     }
-
-    pool.wait_all();
 }

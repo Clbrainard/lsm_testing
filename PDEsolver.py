@@ -1,4 +1,6 @@
 import QuantLib as ql
+import pandas as pd
+import itertools
 
 
 def american_put_pde(S0, r, K, v, T):
@@ -56,16 +58,40 @@ def american_put_pde(S0, r, K, v, T):
     return option.NPV()
 
 
+def price_grid(S0, r, v, T_list, K_list):
+    """
+    Compute American put prices for all (T, K) combinations.
+
+    Parameters
+    ----------
+    S0     : float        - current stock price (fixed)
+    r      : float        - risk-free rate (fixed)
+    v      : float        - volatility (fixed)
+    T_list : list[float]  - maturities to sweep
+    K_list : list[float]  - strikes to sweep
+
+    Returns
+    -------
+    pd.DataFrame with columns [T, K, price]
+    """
+
+    rows = []
+    for T, K in itertools.product(T_list, K_list):
+        p = american_put_pde(S0=S0, r=r, K=K, v=v, T=T)
+        rows.append({"S0": S0, "K": K, "T": T, "r": r, "v": v, "price": p})
+
+    return pd.DataFrame(rows, columns=["S0", "K", "T", "r", "v", "price"])
+
+
 if __name__ == "__main__":
-    price = american_put_pde(S0=100, 
-                             r=0.05, 
-                             K=95, v=0.2, T=1.0)
-    print(f"American Put Price (PDE): {price:.6f}")
 
+    T_sched = [
+        0.01, 0.025, 0.05, 0.1, 0.2, 0.35, 
+        0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 
+        5.0, 7.0, 10.0, 15.0, 20.0, 30.0
+    ]
+    K_sched = [110,105,100,95]
 
-    #    {100.0, 100.0, 1.0, 0.05, 0.2, 6.089770},  // ATM
-    #    {100.0, 105.0, 1.0, 0.05, 0.2, 8.739389},  // ITM mild  (K > So for put)
-    #    {100.0, 110.0, 1.0, 0.05, 0.2, 11.971846},  // ITM deep  (K > So for put)
-    #    {100.0,  95.0, 1.0, 0.05, 0.2, 4.012655}   // OTM       (K < So for put)
+    df = price_grid(100,0.05,0.2,T_sched,K_sched)
 
-
+    df.to_csv("DiscretizationTestSet.csv", index=False)
