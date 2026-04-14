@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("DTanalysis2.csv", std::ios::app);
+    std::ofstream file("Nanalysis.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -432,10 +432,10 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("DiscretizationTestSet2.csv");
+    std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 10000;
-    int N = 100;
+    std::vector<int> Ns = {10000, 7500, 5000, 2500, 1000, 500, 250, 200, 150, 100, 50, 35, 20, 15, 10, 5, 3, 2, 1};
     int regType = 1;
 
 
@@ -448,7 +448,8 @@ int main() {
         double K = cases[z][1];
         double actualPrice = cases[z][5];
         for (int i = 0; i < 50; i++) {
-
+            for (int k = 0; k<Ns.size(); k++) {
+                    int N = Ns[k];
                     // ALGORITHM
                     auto t0 = std::chrono::high_resolution_clock::now();
                     std::vector<long double> output = priceAmericanPut(So, T, N, P, r, v, K, regType);
@@ -459,7 +460,7 @@ int main() {
                     double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
 
                     write_result(N, P, APE, output[1], seconds, K, T/N);
-        
+            }
         }
     }
 }
