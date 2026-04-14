@@ -435,7 +435,7 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 10000;
-    std::vector<int> Ns = {10000, 7500, 5000, 2500, 1000, 500, 250, 200, 150, 100, 50, 35, 20, 15, 10, 5, 3, 2, 1};
+    std::vector<int> Ns = {600, 350, 175, 125, 75, 40, 30};
     int regType = 1;
 
 
@@ -448,6 +448,7 @@ int main() {
         double K = cases[z][1];
         double actualPrice = cases[z][5];
         for (int i = 0; i < 50; i++) {
+            std::cout << "Running simulations [" << i << "/50] complete"
             for (int k = 0; k<Ns.size(); k++) {
                     int N = Ns[k];
                     // ALGORITHM
