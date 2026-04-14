@@ -432,7 +432,7 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("DiscretizationTestSet2.csv");
+    std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 10000;
     int N = 100;
