@@ -435,7 +435,7 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 1000;
-    std::vector<int> Ns = {7000};
+    std::vector<int> Ns = {20000};
     int regType = 1;
 
     int todo = cases.size() * 50 * Ns.size();
@@ -453,7 +453,7 @@ int main() {
         double actualPrice = cases[z][5];
         for (int i = 0; i < 50; i++) {
             
-            std::cout << "Running simulations: " << std::round((complete/todo)*100) <<"%\n";
+            std::cout << "Running simulations: " << std::round(((z*50 + i)/(cases.size()*50))*1000)/10 <<"%\n";
             for (int k = 0; k<Ns.size(); k++) {
                     int N = Ns[k];
                     // ALGORITHM
@@ -466,7 +466,7 @@ int main() {
                     double APE = (std::abs(output[0]-actualPrice) / actualPrice) * 100;
 
                     write_result(N, P, APE, output[1], seconds, K, T/N);
-                    complete += 1;
+                    
             }
         }
     }
