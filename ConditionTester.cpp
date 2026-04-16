@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("Nanalysis.csv", std::ios::app);
+    std::ofstream file("Nanalysis2.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -434,8 +434,8 @@ int main() {
     // OPTION PROPERTIES
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
-    int P = 10000;
-    std::vector<int> Ns = {1200,1100,9000,6000,4000,3000,800};
+    int P = 1000;
+    std::vector<int> Ns = {1, 2, 3, 5, 10, 15, 20, 30, 35, 40, 50, 75, 100, 125, 150, 175, 200, 250, 350, 500, 600, 800, 1000, 3000, 5000};
     int regType = 1;
 
 
