@@ -435,7 +435,7 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 1000;
-    std::vector<int> Ns = {20000};
+    std::vector<int> Ns = {50000};
     int regType = 1;
 
     int todo = cases.size() * 50 * Ns.size();
