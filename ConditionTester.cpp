@@ -432,10 +432,10 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
+    std::vector<std::vector<double>> cases = load_csv("NTestSet2.csv");
 
     int P = 1000;
-    std::vector<int> Ns = {50000};
+    std::vector<int> Ns = {1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 100, 125, 150, 175, 200, 250, 350, 500, 600, 800, 1000, 2000, 3000, 5000, 7000, 10000, 20000};
     int regType = 1;
 
     int todo = cases.size() * 50 * Ns.size();
@@ -471,3 +471,4 @@ int main() {
         }
     }
 }
+
