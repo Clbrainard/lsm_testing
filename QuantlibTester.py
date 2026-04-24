@@ -19,9 +19,9 @@ import QuantLib as ql
 # ---------------------------------------------------------------------------
 
 CSV_PATH    = "NTestSet.csv"
-OUTPUT_PATH = "C1-results.csv"
-P           = 10000
-N_VALUES    = [10,100,1000,10000]
+OUTPUT_PATH = "C2-results.csv"
+P           = 1000
+N_VALUES    = [5,10,50,100,500,1000,5000,10000]
 N_TESTS     = 100
 SEEDS       = list(range(100))
 Q_DEFAULT   = 0.0
