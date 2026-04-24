@@ -20,8 +20,8 @@ import QuantLib as ql
 
 CSV_PATH    = "NTestSet.csv"
 OUTPUT_PATH = "C1-results.csv"
-P           = 1000
-N_VALUES    = [10000]
+P           = 10000
+N_VALUES    = [10,100,1000,10000]
 N_TESTS     = 100
 SEEDS       = list(range(100))
 Q_DEFAULT   = 0.0
@@ -61,7 +61,7 @@ def price_american_put(P, N, T, v, r, q, S0, seed, K):
         timeSteps=N,
         requiredSamples=P,
         seed=seed,
-        polynomOrder=4,
+        polynomOrder=2,
         antitheticVariate=True,
     ))
 
