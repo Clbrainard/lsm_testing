@@ -1,15 +1,14 @@
 """
 benchmark.py
 
-For a given P and list of N values, runs 100 MC American put pricing tests
-per N value against a test set CSV, computes APE, and writes results to CSV.
+For each N value, runs 100 tests for every option in the CSV.
+Results are flushed to CSV after each N batch completes.
 
 Install:
     pip install QuantLib pandas
 """
 
 import multiprocessing as mp
-from itertools import cycle
 
 import pandas as pd
 import QuantLib as ql
@@ -20,12 +19,14 @@ import QuantLib as ql
 # ---------------------------------------------------------------------------
 
 CSV_PATH    = "NTestSet.csv"
-OUTPUT_PATH = "Conj1_results.csv"
-P           = 10000         # number of MC paths
-N_VALUES    = [10, 100, 1000, 10000, 100000]  # list of time step values to test
-N_TESTS     = 100             # number of tests per N value
-SEEDS       = list(range(N_TESTS)) # seed pool — cycles across tests [0,1,...,9,0,1,...]
-Q_DEFAULT   = 0.0             # dividend yield if not present in CSV
+OUTPUT_PATH = "C1-results.csv"
+P           = 1000
+N_VALUES    = [10000]
+N_TESTS     = 100
+SEEDS       = list(range(100))
+Q_DEFAULT   = 0.0
+
+REFERENCE_DATE = ql.Date(1, 1, 2020)
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ Q_DEFAULT   = 0.0             # dividend yield if not present in CSV
 
 def price_american_put(P, N, T, v, r, q, S0, seed, K):
     day_counter = ql.Actual365Fixed()
-    today = ql.Date.todaysDate()
+    today = REFERENCE_DATE
     ql.Settings.instance().evaluationDate = today
 
     expiry = today + int(round(T * 365))
@@ -51,6 +52,9 @@ def price_american_put(P, N, T, v, r, q, S0, seed, K):
         ql.PlainVanillaPayoff(ql.Option.Put, K),
         ql.AmericanExercise(today, expiry),
     )
+
+    # MCAmericanEngine has two RNG streams — calibration and pricing.
+    # Both must be explicitly seeded for fully deterministic results.
     option.setPricingEngine(ql.MCAmericanEngine(
         process,
         "PseudoRandom",
@@ -59,8 +63,8 @@ def price_american_put(P, N, T, v, r, q, S0, seed, K):
         seed=seed,
         polynomOrder=4,
         antitheticVariate=True,
-        nCalibrationSamples=P // 4,
     ))
+
     return option.NPV()
 
 
@@ -84,27 +88,31 @@ if __name__ == "__main__":
     if "q" not in df.columns:
         df["q"] = Q_DEFAULT
 
-    seed_cycle = cycle(SEEDS)
-    all_jobs = []
+    n_options = len(df)
+    print(f"{n_options} options in CSV")
+    print(f"Jobs per N: {n_options} options x {N_TESTS} tests = {n_options * N_TESTS}")
+    print(f"Total jobs: {n_options * N_TESTS * len(N_VALUES)}")
+    print(f"Running on {mp.cpu_count()} cores...\n")
 
-    for N in N_VALUES:
-        rows = [df.iloc[i % len(df)] for i in range(N_TESTS)]
-        for row in rows:
-            all_jobs.append({
-                "P": P, "N": N,
-                "S0": row["S0"], "K": row["K"], "T": row["T"],
-                "r": row["r"],   "v": row["v"], "q": row["q"],
-                "actual_price": row["price"],
-                "seed": next(seed_cycle),
-            })
+    write_header = True
+    with mp.Pool(processes=mp.cpu_count(), maxtasksperchild=1) as pool:
+        for N in N_VALUES:
+            batch = [
+                {
+                    "P": P, "N": N,
+                    "S0": row["S0"], "K": row["K"], "T": row["T"],
+                    "r": row["r"],   "v": row["v"], "q": row["q"],
+                    "actual_price": row["price"],
+                    "seed": SEEDS[test_idx],
+                }
+                for _, row in df.iterrows()
+                for test_idx in range(N_TESTS)
+            ]
 
-    print(f"Pricing {len(all_jobs)} options across {len(N_VALUES)} N values "
-          f"({N_TESTS} tests each) using {mp.cpu_count()} cores...")
+            results = pool.map(_worker, batch)
+            out_df = pd.DataFrame(results)[["P", "N", "S0", "K", "T", "r", "v", "APE"]]
+            out_df.to_csv(OUTPUT_PATH, mode="a", index=False, header=write_header)
+            write_header = False
+            print(f"N={N:>4} done — mean APE: {out_df['APE'].mean():.4f}%")
 
-    with mp.Pool(processes=mp.cpu_count()) as pool:
-        results = pool.map(_worker, all_jobs)
-
-    out_df = pd.DataFrame(results)[["P", "N", "S0", "K", "T", "r", "v", "APE"]]
-    out_df.to_csv(OUTPUT_PATH, index=False)
-    print(f"Results written to {OUTPUT_PATH}")
-
+    print(f"\nAll results written to {OUTPUT_PATH}")
