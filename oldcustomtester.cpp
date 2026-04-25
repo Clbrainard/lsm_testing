@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("C21-results.csv", std::ios::app);
+    std::ofstream file("C31-results.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -432,11 +432,11 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
+    std::vector<std::vector<double>> cases = load_csv("NTestSet-small.csv");
 
     int P = 10000;
-    std::vector<int> Ns = {1,2,3,4,6,7,8,9};
-    //{5,10,100,125,150,250,400,500,1000,5000};
+    std::vector<int> Ns = {5,10,50,100,500,1000};
+
     int regType = 1;
 
     int numTests = 100 * cases.size();
