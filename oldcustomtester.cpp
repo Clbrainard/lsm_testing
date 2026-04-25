@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("Nanalysis2.csv", std::ios::app);
+    std::ofstream file("C11-results.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -250,7 +250,7 @@ std::vector<long double> regress(const std::vector<double>& X, const std::vector
 //################################################
 //returns a matrix with N steps and 2*P paths (includes P antithetic)
 std::vector<double> generatePricePathMatrix(
-    int P, double So, double dt, int N, double r, double v
+    int P, double So, double dt, int N, double r, double v, unsigned int seed
 ) {
     std::vector<double> paths((size_t)P * 2 * N);
 
@@ -261,7 +261,7 @@ std::vector<double> generatePricePathMatrix(
     // Each thread exclusively uses gens[tid] and a private normal_distribution,
     // so there is zero shared mutable RNG state and Gaussian draws remain
     // statistically independent across paths.
-    std::mt19937 master(std::random_device{}());
+    std::mt19937 master(seed);
     int nThreads = omp_get_max_threads();
     std::vector<std::mt19937> gens(nThreads);
     for (int t = 0; t < nThreads; ++t)
@@ -295,7 +295,7 @@ std::vector<double> generatePricePathMatrix(
 //################################################
 
 std::vector<long double> priceAmericanPut(
-    double So, double T, int N, int P, double r, double v, double K, int regType
+    double So, double T, int N, int P, double r, double v, double K, int regType, unsigned int seed
 ) {
 
     double dt = T / N;
@@ -319,7 +319,7 @@ std::vector<long double> priceAmericanPut(
     for (int batchStart = 0; batchStart < P; batchStart += batch_size) {
         int bP = std::min(batch_size, P - batchStart);
 
-        std::vector<double> S = generatePricePathMatrix(bP, So, dt, N, r, v);
+        std::vector<double> S = generatePricePathMatrix(bP, So, dt, N, r, v, seed);
 
         std::vector<int>    ex_step(bP, -1);
         std::vector<double> ex_val (bP, 0.0);
@@ -435,12 +435,8 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 1000;
-    std::vector<int> Ns = {100000};
+    std::vector<int> Ns = {5,10,30,40,50,75,100,125,150,250,400,500,1000,2000,3500,5000,7500,10000};
     int regType = 1;
-
-    int todo = cases.size() * 50 * Ns.size();
-    int complete = 0;
-
 
     //Test cases
     for (int z = 0; z<cases.size(); z++) {
@@ -451,14 +447,14 @@ int main() {
         double K = cases[z][1];
 
         double actualPrice = cases[z][5];
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 100; i++) {
             
             std::cout << "Running simulations: " << std::round(((z*50 + i)/(cases.size()*50))*1000)/10 <<"%\n";
             for (int k = 0; k<Ns.size(); k++) {
                     int N = Ns[k];
                     // ALGORITHM
                     auto t0 = std::chrono::high_resolution_clock::now();
-                    std::vector<long double> output = priceAmericanPut(So, T, N, P, r, v, K, regType);
+                    std::vector<long double> output = priceAmericanPut(So, T, N, P, r, v, K, regType, i);
                     auto t1 = std::chrono::high_resolution_clock::now();
                     double seconds = std::chrono::duration<double, std::milli>(t1 - t0).count() / 1000;
 
