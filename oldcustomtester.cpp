@@ -435,11 +435,15 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 10000;
-    std::vector<int> Ns = {5,10,100,125,150,250,400,500,1000,5000};
+    std::vector<int> Ns = {1,2,3,4,6,7,8,9};
+    //{5,10,100,125,150,250,400,500,1000,5000};
     int regType = 1;
 
+    int numTests = 100 * cases.size();
+    int complete = 1;
+
     //Test cases
-    for (int z = 0; z<cases.size(); z++) {
+    for (int z = 0; z<cases.size(); z++) { 
         double So = cases[z][0];
         double T = cases[z][2];  
         double r = cases[z][3];
@@ -449,7 +453,7 @@ int main() {
         double actualPrice = cases[z][5];
         for (int i = 0; i < 100; i++) {
             
-            std::cout << "Running simulations: " << std::round(((z*50 + i)/(cases.size()*50))*1000)/10 <<"%\n";
+            std::cout << "Running simulations: " << complete << "/" << numTests <<"\n";
             for (int k = 0; k<Ns.size(); k++) {
                     int N = Ns[k];
                     // ALGORITHM
@@ -463,7 +467,9 @@ int main() {
 
                     write_result(N, P, APE, output[1], seconds, K, T/N);
                     
+                    
             }
+            complete += 1;
         }
     }
 }
