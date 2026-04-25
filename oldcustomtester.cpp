@@ -435,7 +435,7 @@ int main() {
     std::vector<std::vector<double>> cases = load_csv("NTestSet-small.csv");
 
     int P = 10000;
-    std::vector<int> Ns = {5,10,50,100,500,1000};
+    std::vector<int> Ns = {30,70,300,700};
 
     int regType = 1;
 
