@@ -436,7 +436,7 @@ int main() {
 
     int P = 10000;
 
-    std::vector<int> Ns = {200};
+    std::vector<int> Ns = {7000};
 
     int regType = 1;
 
