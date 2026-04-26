@@ -86,10 +86,10 @@ def price_grid(S0, r, v, T_list, K_list):
 if __name__ == "__main__":
 
     T_sched = [
-        1/12
+        1
     ]
-    K_sched = [90,95,97.5,100,102.5,105,110]
+    K_sched = [80]
 
     df = price_grid(100,0.05,0.2,T_sched,K_sched)
 
-    df.to_csv("NTestSet-small.csv", index=False)
+    df.to_csv("NTestSet2.csv", index=False)
