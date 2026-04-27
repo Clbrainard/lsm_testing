@@ -432,11 +432,11 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = load_csv("NTestSet2.csv");
+    std::vector<std::vector<double>> cases = load_csv("NTestSet.csv");
 
     int P = 10000;
 
-    std::vector<int> Ns = {5, 10, 100, 125, 400, 500, 1000, 5000, 1, 2, 3, 4, 6, 7, 8, 9, 30, 50, 70, 600, 800, 1200, 200, 7000};
+    std::vector<int> Ns = {10000};//{5, 10, 100, 125, 400, 500, 1000, 5000, 1, 2, 3, 4, 6, 7, 8, 9, 30, 50, 70, 600, 800, 1200, 200, 7000};
 
     int regType = 1;
 
