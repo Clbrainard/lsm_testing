@@ -86,7 +86,8 @@ if __name__ == "__main__":
 
     r = [0.01, 0.025, 0.04, 0.055, 0.07, 0.10] 
 
-    t = [0.08, 0.11, 0.16, 0.23, 0.33, 0.47, 0.68, 0.97, 1.40, 2.00]  
+    t = [0.095,0.135,0.195,0.28,0.4,0.575,0.8,1.2,1.7]
+    #[0.08, 0.11, 0.16, 0.23, 0.33, 0.47, 0.68, 0.97, 1.40, 2.00]  
 
     v = [0.1, 0.16,0.18,0.23,0.26]
     #[0.05, 0.13, 0.21, 0.29, 0.37, 0.45, 0.53, 0.61, 0.69, 0.80]
@@ -100,7 +101,7 @@ if __name__ == "__main__":
         rows.append(row)
         if len(rows) >= batch_size:
             df = pd.DataFrame(rows, columns=["S0", "K", "T", "r", "v", "price"])
-            df.to_csv(filename, mode='a', header=first_batch, index=False)
+            df.to_csv(filename, mode='a', header=False, index=False)
             first_batch = False
             rows = []
 
