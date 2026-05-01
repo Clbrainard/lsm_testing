@@ -45,7 +45,7 @@ int current_minute() {
 }
 
 void write_result(int steps, int paths, double price, double kappa, double runtime, double K, double dt) {
-    std::ofstream file("EuroConv.csv", std::ios::app);
+    std::ofstream file("euro/EuroConv.csv", std::ios::app);
     file << steps << "," << paths << "," << price << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -443,7 +443,7 @@ int main() {
 
     int P = 10000;
 
-    std::vector<int> Ns = {1,2,3,4,5,6,7,8,9,10,12,14,16,18,20,25,30,35,40,50};
+    std::vector<int> Ns = {60,70,80,90,100};
 
     int regType = 1;
 
