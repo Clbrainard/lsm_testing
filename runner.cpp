@@ -432,17 +432,11 @@ int main() {
 
 
     // OPTION PROPERTIES
-    std::vector<std::vector<double>> cases = {
-        {100,102.5,1,0.05,0.2,7.341820839041034},
-        {100,97.5,1,0.05,0.2,4.98125593400984},
-        {100,100,1,0.05,0.2,6.089769951939136},
-        {100,105,1,0.05,0.2,8.73938852172418},
-        {100,95,1,0.05,0.2,4.012655060686365}
-    };
+    std::vector<std::vector<double>> cases = load_csv("NTestSet-trimmed.csv");
 
     int P = 10000;
 
-    std::vector<int> Ns = {50000};
+    std::vector<int> Ns = {20,50,60,80,90,300};
 
     int regType = 1;
 
