@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-Content \"c:\\\\Users\\\\clbra\\\\Documents\\\\GitHub\\\\lsm_testing\\\\C21-results.csv\")",
+      "Bash(Measure-Object -Line)"
+    ]
+  }
+}
