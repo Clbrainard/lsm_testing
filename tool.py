@@ -9,8 +9,7 @@ shutil.copy2(csv_path, backup_path)
 
 df = pd.read_csv(csv_path)
 
-if "runFile" not in df.columns:
-    df["runFile"] = 0
+df["runFile"] = (df["N"] >= 200000).astype(int)
 
 df.to_csv(csv_path, index=False)
 
