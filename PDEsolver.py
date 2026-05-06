@@ -90,6 +90,6 @@ if __name__ == "__main__":
     ]
     K_sched = [120]
 
-    df = price_grid(100,0.05,0.2,T_sched,K_sched)
+    df = price_grid(100,0.05,0.3,T_sched,K_sched)
 
     df.to_csv("NTestSet2.csv", index=False)
