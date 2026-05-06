@@ -88,7 +88,7 @@ if __name__ == "__main__":
     T_sched = [
         1
     ]
-    K_sched = [120]
+    K_sched = [95,97.5,100,102.5,105]
 
     df = price_grid(100,0.05,0.3,T_sched,K_sched)
 
