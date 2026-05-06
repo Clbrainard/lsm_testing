@@ -51,7 +51,7 @@ int current_minute() {
 
 void write_result(int steps, int paths, double absPercentError, double kappa, double runtime, double K, double dt) {
     std::lock_guard<std::mutex> lock(io_mutex);
-    std::ofstream file("C21-results.csv", std::ios::app);
+    std::ofstream file("C3-results.csv", std::ios::app);
     file << steps << "," << paths << "," << absPercentError << "," << kappa << "," << runtime << "," << K <<  "," << dt <<"\n";
 }
 
@@ -439,16 +439,16 @@ int main() {
 
     // OPTION PROPERTIES
     std::vector<std::vector<double>> cases = {
-        {100, 102.5, 1, 0.05, 0.2, 7.341820839041034},
-        {100, 97.5,  1, 0.05, 0.2, 4.98125593400984},
-        {100, 100,   1, 0.05, 0.2, 6.089769951939136},
-        {100, 105,   1, 0.05, 0.2, 8.73938852172418},
-        {100, 95,    1, 0.05, 0.2, 4.012655060686365}
+        {100, 102.5, 1, 0.05, 0.3, 11.175200703568876},
+        {100, 97.5,  1, 0.05, 0.3, 8.653516553785938},
+        {100, 100,   1, 0.05, 0.3, 9.869413355357048},
+        {100, 105,   1, 0.05, 0.3, 12.569554879457415},
+        {100, 95,    1, 0.05, 0.3, 7.528369520626952}
     };
 
     int P = 10000;
 
-    std::vector<int> Ns = {200000,250000,300000,350000,400000,450000,500000,600000,700000,800000,900000,1000000};
+    std::vector<int> Ns = {2,3,4,5,6,7,8,9,10,15,20,25,30,35,40,45,50,60,70,80,90,100,150,200,250,300,400,500,600,700,800,900,1000};
 
     int regType = 1;
 
